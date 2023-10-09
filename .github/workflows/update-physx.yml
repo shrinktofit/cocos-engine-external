@@ -1,0 +1,76 @@
+name: Update PhysX
+on:
+  workflow_dispatch:
+    inputs:
+      physx_repo_ref:
+        description: "PhysX Repo Ref"
+        required: true
+        type: string
+        default: cocos-master
+jobs:
+  release:
+    name: Release
+    runs-on: windows-latest
+    steps:
+      - name: Check This Repo
+        uses: actions/checkout@v4
+        with:
+          path: external
+
+      - name: Checkout PhysX
+        uses: actions/checkout@v4
+        with:
+          repository: cocos/PhysX
+          ref: ${{ inputs.physx_repo_ref }}
+          path: physx
+
+      - name: Checkout EMSDK
+        uses: actions/checkout@v4
+        with:
+          repository: emscripten-core/emsdk
+          path: emsdk
+
+      - name: Setup EMSDK
+        shell: pwsh
+        run: |
+          cd emsdk
+          ./emsdk install 3.1.41
+          ./emsdk activate 3.1.41
+          # Verify
+          emcc -v
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
+
+      - name: Build
+        shell: pwsh
+        run: |
+          # Setup EMSDK env
+          & "emsdk/emsdk_env.ps1"
+          try {
+            Push-Location
+            cd physx
+            Write-Host "Start release build"
+            ./build-emscripten.ps1 -Mode Release -Only wasm
+            # Write-Host "Start debug build"
+            # ./build-emscripten.ps1 -Mode Debug
+            Write-Host "Build finished"
+            Get-ChildItem "builds"
+          } finally {
+            Pop-location
+          }
+          $targetOutPath = "external/emscripten/physx"
+          New-Item -ItemType Directory -Force (Split-Path $targetOutPath -Parent) | Out-Host
+          Copy-Item -Recurse -Force "physx/builds/*.*" $targetOutPath | Out-Host
+      
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          path: external
+          add-paths:
+            emscripten/physx/*.*
+          title: |
+            Update PhysX emscripten dependency
+          body: |
+            This PR updates PhysX emscripten dependency.
+            [PhysX repository](https://github.com/cocos/PhysX) ref is ${{ inputs.physx_repo_ref }}.
